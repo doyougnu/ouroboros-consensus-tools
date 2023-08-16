@@ -77,6 +77,8 @@ import           System.Exit (die)
 import           System.IO (IOMode (ReadMode), openFile)
 import           System.Process (callCommand)
 
+import           Options.Applicative (Parser, execParser, fullDesc, progDesc, info, (<**>), helper, strOption, long, help, auto, option, flag)
+
 --------------------------------------------------------------------------------
 -- Analysis options
 --------------------------------------------------------------------------------
@@ -105,19 +107,7 @@ data OverwriteData = OverwriteData | DoNotOverwriteData
 
 main :: IO ()
 main = do
-    -- TODO: Read these from the command line.
-    --
-    let
-        -- TODO: set the 'undefined' fields below.
-        opts = BenchmarksCompareOptions {
-            versionA = Version undefined
-          , versionB = Version undefined
-          , nodeHome = undefined
-          , analyseFromSlot = 100
-          , numBlocksToProcess = 1000000
-          , overwriteData = DoNotOverwriteData
-          }
-
+    opts <- getOpts
     --
     -- Obtain benchmarks data
     --
@@ -470,3 +460,59 @@ printPairs fstHeader sndHeader xs = do
     mapM_ printPair xs
   where
     printPair (a, b) = putStrLn $ "" <> show a <> ", " <> show b <> ""
+
+--------------------------------------------------------------------------------
+-- Command line parsing
+--------------------------------------------------------------------------------
+
+getOpts :: IO BenchmarksCompareOptions
+getOpts = execParser
+        $ info (parseOpts <**> helper)
+        $ mconcat
+          [ fullDesc
+          , progDesc "Compare benchmarks."
+          ]
+
+parseOpts :: Parser BenchmarksCompareOptions
+parseOpts =   BenchmarksCompareOptions
+          <$> parseVersion "versionA"
+          <*> parseVersion "versionB"
+          <*> parseNodeHome
+          <*> parseAnalyseFrom
+          <*> parseNumBlocksToProcess
+          <*> parseOverwriteData
+  where
+    parseVersion :: String -> Parser Version
+    parseVersion name =  Version
+                <$> strOption
+                    ( mconcat
+                    [ long name
+                    , help "Version to compare"
+                    ])
+
+    parseNodeHome :: Parser FilePath
+    parseNodeHome = strOption
+                    ( mconcat
+                      [ long "node-home"
+                      , help "File path to the 'mainnet' data directory of the node."
+                      ]
+                    )
+
+    parseAnalyseFrom :: Parser Int
+    parseAnalyseFrom = option auto
+                     $ mconcat
+                       [ long "analyse-from"
+                       ]
+
+    parseNumBlocksToProcess :: Parser Int
+    parseNumBlocksToProcess = option auto
+                            $ mconcat
+                            [ long "num-blocks-to-process"
+                            ]
+
+    parseOverwriteData :: Parser OverwriteData
+    parseOverwriteData = flag OverwriteData DoNotOverwriteData
+                       $ mconcat
+                         [ long "overwrite-data"
+                         , help "Overwrite previous benchmarkd data"
+                         ]

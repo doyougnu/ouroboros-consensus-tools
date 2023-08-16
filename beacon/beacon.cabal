@@ -35,6 +35,7 @@ executable beacon
     , containers
     , directory
     , extra
+    , optparse-applicative
     , process
     , text
     , vector
