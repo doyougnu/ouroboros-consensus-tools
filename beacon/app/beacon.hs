@@ -222,20 +222,27 @@ mut_blockApply = "mut_blockApply"
 -- At the moment we perform a very simple comparison between the benchmark
 -- results of versions 'A' and 'B'. We will refine the comparison process in
 -- later versions. Per each slot 's', and each metric 'm' at that slot (eg block
--- processing time), we compute the difference ratio between measurements 'A'
+-- processing time), we compute the relative change between measurements 'A'
 -- and 'B':
 --
--- > d_s = (m_s_B - m_s_A) / m_s_A
+-- > d_s A B = (m_s_B - m_s_A) / (max m_s_A m_s_B)
 --
 -- where 'm_s_v' is the measurement of metric 'm' at slot 's' for version 'v'.
--- Given the way we compute this ratio, 'd_s' will be positive if the
+--
+-- Given the way we compute this ratio, 'd_s A B' will be positive if the
 -- measurement for version 'B' is larger than the measurement for version 'A',
--- and conversely, 'd_s' will be negative if the measurement for version 'A' is
--- larger than that for 'B'. For instance, if we're measuring block application
--- time, and 'd_100' is '0.6' this means that version 'B' took 60% more time to
--- apply a block in that particular run. We use 'm_s_A' as quotient because we
--- assume version 'A' is the "baseline" against which we compare the other
--- version.
+-- and conversely, 'd_s A B' will be negative if the measurement for version 'A' is
+-- larger than the corresponding measurement for 'B'.
+--
+-- For instance, if we're measuring block application time, and 'd_100' is '0.6'
+-- this means that version 'B' took 60% more time to apply a block in that
+-- particular run.
+--
+-- We use the maximum betweeen 'm_s_A' and 'm_s_B' as quotient to guarantee that
+-- a change from 'm_s_A' to 'm_s_B' has the same magnitude as a change in the
+-- opposite direction. In other words:
+--
+-- > d_s A B = - (d_s B A)
 --
 -- TODO: Describe what we do with the comparison results.
 compareMeasurements :: BenchmarksCompareOptions -> Text -> Csv -> Csv -> IO ()
@@ -243,26 +250,26 @@ compareMeasurements opts header csvA csvB = do
     -- TODO: Make this configurable.
     let threshold = 4
 
-    let abDiffRatio = diffRatioAscending header csvA csvB
+    let abRelChange = relChangeAscending header csvA csvB
 
     putStrLn $ "Comparison for " <> Text.unpack header
 
     -- TODO: Bigger is better or smaller is better depends on the metric. We should make this configurable.
-    abDiffRatio `shouldBeBelow` threshold
+    abRelChange `shouldBeBelow` threshold
 
     let n = 10 :: Int
 
     putStrLn $ "Top " <> show n <> " measurements smaller than baseline (" <> unVersion (versionA opts) <> ")"
-    printPairs slot header $ V.take 10 $ differenceRatio abDiffRatio
+    printPairs slot header $ V.take 10 $ relativeChange abRelChange
 
     putStrLn $ "Top " <> show n <> " measurements larger than baseline ("  <> unVersion (versionA opts) <> ")"
-    printPairs slot header $ V.take 10 $ V.reverse $ differenceRatio abDiffRatio
+    printPairs slot header $ V.take 10 $ V.reverse $ relativeChange abRelChange
 
     -- Filter the slots that have a difference above the give threshold.
     let outliers = Set.fromList
                  $ V.toList
-                 $ filterSlots (\v -> v <= -threshold || v >= threshold ) abDiffRatio
-    -- TODO: We might avoid an 'n * log n' runtime if we augment the CSV file with the difference ratio.
+                 $ filterSlots (\v -> v <= -threshold || v >= threshold ) abRelChange
+    -- TODO: We might avoid an 'n * log n' runtime if we augment the CSV file with the relative change.
 
     plotMeasurements
       (ChartTitle (Text.unpack header))
@@ -277,17 +284,32 @@ compareMeasurements opts header csvA csvB = do
        <> unVersion (versionB opts)
        <> ".png"
       )
+    where
+      -- Given two runs and a column name, return the relative change, sorted in
+      -- ascending order.
+      relChangeAscending ::
+           Text
+        -> Csv
+        -> Csv
+        -> RelativeChange
+      relChangeAscending header dfA dfB =
+            RelativeChange
+          $ sortAscendingWithSlot dfA
+          $ fmap relChange
+          $ V.zip (dfA .@ header) (dfB .@ header)
+        where
+          relChange (a, b) = (b - a) / max a b
 
--- | Check that the difference ratio is above the given threshold.
-shouldBeAbove :: DifferenceRatio -> Double -> IO ()
+-- | Check that the relative change is above the given threshold.
+shouldBeAbove :: RelativeChange -> Double -> IO ()
 shouldBeAbove dr threshold =
-  check (threshold < maxDifferenceRatio dr)
+  check (threshold < maxRelativeChange dr)
 
-shouldBeBelow :: DifferenceRatio -> Double -> IO ()
+shouldBeBelow :: RelativeChange -> Double -> IO ()
 shouldBeBelow dr threshold =
-  check (maxDifferenceRatio dr < threshold)
+  check (maxRelativeChange dr < threshold)
 
--- | Check that the difference ratio is above the given threshold.
+-- | Check that the relative change is above the given threshold.
 check :: Bool -> IO ()
 check b =
   unless b $ do
@@ -301,7 +323,7 @@ printWarning str =
       (Console.setSGR [Console.Reset])
       (print str)
 
--- | Difference ratio per-slot. See 'diffRatioDescending'.
+-- | Relative change per-slot. See 'relChangeDescending'.
 --
 -- TODO: The first component in the vector represents a slot. We might want to
 -- change this type.
@@ -311,41 +333,18 @@ printWarning str =
 -- - the vector is sorted in ascending order on its second component.
 --
 -- TODO: we might want to add a smart constructor for this.
-newtype DifferenceRatio = DifferenceRatio { differenceRatio :: Vector (Double, Double) }
+newtype RelativeChange = RelativeChange { relativeChange :: Vector (Double, Double) }
 
-maxDifferenceRatio :: DifferenceRatio -> Double
-maxDifferenceRatio = snd . V.last . differenceRatio
+maxRelativeChange :: RelativeChange -> Double
+maxRelativeChange = snd . V.last . relativeChange
 
-minDifferenceRatio :: DifferenceRatio -> Double
-minDifferenceRatio = snd . (V.! 0) . differenceRatio
+minRelativeChange :: RelativeChange -> Double
+minRelativeChange = snd . (V.! 0) . relativeChange
 
 -- | Keep only the slots that satisfy the given predicate on the second component.
-filterSlots :: (Double -> Bool) -> DifferenceRatio -> Vector Double
-filterSlots f DifferenceRatio { differenceRatio } =
-    V.map fst $ V.filter (f . snd) differenceRatio
-
--- | Given two runs and a column name, return the difference ratio, sorted in
--- ascending order.
---
--- Given two columns 'a' and 'b', for each index 'i' we compute the following ratio:
---
--- > (b !! i - a !! i) / a !! i
---
--- This means that in the result, for a given slot, if the second measurement is
--- bigger than the first the difference will be positive. Conversely, if the
--- second measurement is smaller than the first, the difference will be negative.
-diffRatioAscending ::
-     Text
-  -> Csv
-  -> Csv
-  -> DifferenceRatio
-diffRatioAscending header dfA dfB =
-      DifferenceRatio
-    $ sortAscendingWithSlot dfA
-    $ fmap diffRatio
-    $ V.zip (dfA .@ header) (dfB .@ header)
-  where
-    diffRatio (a, b) = (b - a) / a
+filterSlots :: (Double -> Bool) -> RelativeChange -> Vector Double
+filterSlots f RelativeChange { relativeChange } =
+    V.map fst $ V.filter (f . snd) relativeChange
 
 sortDescendingWithSlot :: Ord a => Csv -> Vector a -> Vector (Double, a)
 sortDescendingWithSlot df = V.zip (df .@ slot)
