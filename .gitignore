@@ -1,0 +1,11 @@
+.DS_Store
+.idea
+*.log
+tmp/
+
+# cabal
+/cabal.project.local*
+/cabal.project.local~
+/cabal.project.freeze
+dist-newstyle/
+dist/
