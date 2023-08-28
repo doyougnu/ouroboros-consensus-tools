@@ -58,11 +58,20 @@
             };
             nativeBuildInputs = [
               pkgs.ghcid
+              pkgs.fd
+              pkgs.stylish-haskell
+              pkgs.haskellPackages.cabal-fmt
+              pkgs.nixpkgs-fmt
             ];
             withHoogle = true;
           };
         };
-        flake = cabalProject.flake';
+        flake = lib.recursiveUpdate cabalProject.flake' {
+          # add formatting checks to Hydra CI, but only for one system
+          hydraJobs.formatting =
+            lib.optionalAttrs (system == "x86_64-linux")
+              (import ./nix/formatting.nix pkgs);
+        };
       in
       lib.recursiveUpdate flake {
         project = cabalProject;
