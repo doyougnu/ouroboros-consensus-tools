@@ -1,9 +1,7 @@
 cabal-version:   3.0
 name:            beacon
 version:         0.1.0.0
-synopsis:
-  Benchmarking, exploration, and analysis of Consensus.
-
+synopsis:        Benchmarking, exploration, and analysis of Consensus.
 description:
   Tool that can be used to compare the performance of two consensus versions, through `ouroboros-consensus:db-analyser`.
 
@@ -22,16 +20,16 @@ extra-doc-files:
   README.md
 
 executable beacon
-  hs-source-dirs: app
-  main-is:        beacon.hs
+  hs-source-dirs:   app
+  main-is:          beacon.hs
   default-language: GHC2021
   build-depends:
     , ansi-terminal
     , base
     , bytestring
     , cassava
-    , Chart              >=1.9
-    , Chart-cairo        >=1.9
+    , Chart                 >=1.9
+    , Chart-cairo           >=1.9
     , containers
     , directory
     , extra

@@ -71,13 +71,14 @@ import           Data.Vector.Algorithms.Merge (sortBy)
 import qualified Graphics.Rendering.Chart.Backend.Cairo as Chart.Cairo
 import           Graphics.Rendering.Chart.Easy ((.=))
 import qualified Graphics.Rendering.Chart.Easy as Chart
+import           Options.Applicative (Parser, auto, execParser, flag, fullDesc,
+                     help, helper, info, long, option, progDesc, strOption,
+                     (<**>))
 import qualified System.Console.ANSI as Console
 import           System.Directory (doesFileExist)
 import           System.Exit (die)
 import           System.IO (IOMode (ReadMode), openFile)
 import           System.Process (callCommand)
-
-import           Options.Applicative (Parser, execParser, fullDesc, progDesc, info, (<**>), helper, strOption, long, help, auto, option, flag)
 
 --------------------------------------------------------------------------------
 -- Analysis options
