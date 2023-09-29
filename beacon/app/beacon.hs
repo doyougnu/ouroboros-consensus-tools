@@ -1,6 +1,8 @@
-{-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NamedFieldPuns        #-}
+{-# LANGUAGE OverloadedRecordDot   #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 
 -- TODO: remove this once this tool is refactored into smaller sub-modules.
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
@@ -43,8 +45,6 @@
 --
 -- * TODOs
 --
--- - [ ] Add support for command line arguments. At the moment the analysis
---       options are hardcoded.
 -- - [ ] Create a markdown report.
 -- - [ ] Return an error if the threshold is exceeded.
 -- - [ ] Allow to configure metrics information (eg "lower is better", pretty name, etc).
@@ -62,6 +62,7 @@ import           Data.List (findIndex, foldl')
 import           Data.Ord (Down (Down), comparing)
 import           Data.Set (Set)
 import qualified Data.Set as Set
+import           Data.String.Slugger (toSlug)
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
@@ -72,8 +73,8 @@ import qualified Graphics.Rendering.Chart.Backend.Cairo as Chart.Cairo
 import           Graphics.Rendering.Chart.Easy ((.=))
 import qualified Graphics.Rendering.Chart.Easy as Chart
 import           Options.Applicative (Parser, auto, execParser, flag, fullDesc,
-                     help, helper, info, long, option, progDesc, strOption,
-                     (<**>))
+                     help, helper, info, long, metavar, option, progDesc,
+                     strOption, (<**>))
 import qualified System.Console.ANSI as Console
 import           System.Directory (doesFileExist)
 import           System.Exit (die)
@@ -249,9 +250,9 @@ mut_blockApply = "mut_blockApply"
 compareMeasurements :: BenchmarksCompareOptions -> Text -> Csv -> Csv -> IO ()
 compareMeasurements opts header csvA csvB = do
     -- TODO: Make this configurable.
-    let threshold = 4
+    let threshold = 0.8
 
-    let abRelChange = relChangeAscending header csvA csvB
+    let abRelChange = relChangeAscending csvA csvB
 
     putStrLn $ "Comparison for " <> Text.unpack header
 
@@ -260,10 +261,10 @@ compareMeasurements opts header csvA csvB = do
 
     let n = 10 :: Int
 
-    putStrLn $ "Top " <> show n <> " measurements smaller than baseline (" <> unVersion (versionA opts) <> ")"
+    putStrLn $ "Top " <> show n <> " measurements smaller than baseline (" <> (versionA opts).dbAnalyser <> ")"
     printPairs slot header $ V.take 10 $ relativeChange abRelChange
 
-    putStrLn $ "Top " <> show n <> " measurements larger than baseline ("  <> unVersion (versionA opts) <> ")"
+    putStrLn $ "Top " <> show n <> " measurements larger than baseline ("  <> (versionA opts).dbAnalyser <> ")"
     printPairs slot header $ V.take 10 $ V.reverse $ relativeChange abRelChange
 
     -- Filter the slots that have a difference above the give threshold.
@@ -278,22 +279,22 @@ compareMeasurements opts header csvA csvB = do
       (Just outliers)
       csvA
       csvB
-      (   Text.unpack header
+      ( toSlug
+        $ Text.unpack header
        <> "-"
-       <> unVersion (versionA opts)
+       <> (versionA opts).dbAnalyser
        <> "_vs_"
-       <> unVersion (versionB opts)
+       <> (versionB opts).dbAnalyser
        <> ".png"
       )
     where
       -- Given two runs and a column name, return the relative change, sorted in
       -- ascending order.
       relChangeAscending ::
-           Text
-        -> Csv
+           Csv
         -> Csv
         -> RelativeChange
-      relChangeAscending header dfA dfB =
+      relChangeAscending dfA dfB =
             RelativeChange
           $ sortAscendingWithSlot dfA
           $ fmap relChange
@@ -395,25 +396,36 @@ echo :: EchoCommand
 echo = -- EchoCommand
    DoNotEchoCommand
 
-newtype Version = Version { unVersion :: String }
+data Version = Version {
+    dbAnalyser :: String
+    -- | Compiler version used to compile db-analyser.
+    --
+    -- This comes from the 'ouroboros-consensus' 'nix' setup.
+    -- Since relying on this is brittle anyway, we do not define a type for it, and rely instead on a free-form string.
+  , compiler   :: String
+  }
 
-data InstallInfo = InstallInfo { installPath :: String, installedVersion :: String }
+data InstallInfo = InstallInfo { installPath :: String, installedVersion :: Version }
 
 installBenchmarkingProg ::
      Version
   -> IO InstallInfo
-installBenchmarkingProg Version { unVersion } = do
+installBenchmarkingProg version = do
     let installCmd =  "nix build "
-                   <> "github:input-output-hk/ouroboros-consensus/" <> unVersion <> "#hsPkgs.ouroboros-consensus-cardano.components.exes.db-analyser"
+                   <> "github:input-output-hk/ouroboros-consensus/"
+                   <> version.dbAnalyser
+                   <> "#hydraJobs.x86_64-linux.native."
+                   <> version.compiler
+                   <> ".exesNoAsserts.ouroboros-consensus-cardano.db-analyser"
                    <> " -o " <> installDir
-        installDir = "db-analyser-" <> unVersion
+        installDir = "db-analyser-" <> version.dbAnalyser <> "-" <> version.compiler
         executable = installDir <> "/bin/db-analyser"
     ifM (doesFileExist executable)
         (putStrLn $ "File " <> executable <> " exists. No installation required.")
         (callCommandEchoing echo installCmd)
     pure $ InstallInfo {
              installPath = executable
-           , installedVersion = unVersion
+           , installedVersion = version
            }
 
 newtype BenchmarkRunDataPath = BenchmarkRunDataPath { benchmarkRunDataPath :: String }
@@ -427,7 +439,16 @@ runBenchmarks opts InstallInfo { installPath, installedVersion } = do
     unlessM (doesFileExist outfile) run
     pure $ BenchmarkRunDataPath { benchmarkRunDataPath = outfile }
   where
-    outfile = "ledger-ops-cost-" <> installedVersion <> ".csv"
+    outfile = toSlug $
+                "ledger-ops-cost-"
+                <> vToFilePath installedVersion
+                <> "-from_" <> show (analyseFromSlot opts)
+                <> "-nr_blocks_" <> show (numBlocksToProcess opts)
+                <> ".csv"
+
+    vToFilePath version =
+      version.dbAnalyser <> "-" <> version.compiler
+
     run =
       callCommandEchoing echo
         $ "./" <> installPath <> " cardano \\\n"
@@ -489,6 +510,17 @@ parseOpts =   BenchmarksCompareOptions
                     [ long name
                     , help "Version to compare"
                     ])
+                 <*> parseCompilerVersion
+      where
+        parseCompilerVersion :: Parser String
+        parseCompilerVersion =
+          strOption
+            ( mconcat
+              [ long name
+              , help ("Compiler version (eg \"haskell810\", \"haskell92\", \"haskell96\". See the 'ouroboros-consensus' 'nix' setup for options. ")
+                <> metavar "GHC_VERSION"
+              ]
+            )
 
     parseNodeHome :: Parser FilePath
     parseNodeHome = strOption
@@ -514,5 +546,5 @@ parseOpts =   BenchmarksCompareOptions
     parseOverwriteData = flag OverwriteData DoNotOverwriteData
                        $ mconcat
                          [ long "overwrite-data"
-                         , help "Overwrite previous benchmarkd data"
+                         , help "Overwrite previous benchmark data"
                          ]
