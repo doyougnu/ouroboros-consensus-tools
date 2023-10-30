@@ -74,7 +74,7 @@ import           Graphics.Rendering.Chart.Easy ((.=))
 import qualified Graphics.Rendering.Chart.Easy as Chart
 import           Options.Applicative (Parser, auto, execParser, flag, fullDesc,
                      help, helper, info, long, metavar, option, progDesc,
-                     strOption, (<**>))
+                     strOption, value, (<**>))
 import qualified System.Console.ANSI as Console
 import           System.Directory (doesFileExist)
 import           System.Exit (die)
@@ -94,6 +94,13 @@ data BenchmarksCompareOptions = BenchmarksCompareOptions {
         -- node from source and run it from the `cardano-node` directory this
         -- path would point to this directory.
       , nodeHome           :: !FilePath
+      -- | path for the config.json file. This is relative to @nodeHome@. When
+      -- not present this defaults to
+      -- "/configuration/cardano/mainnet-config.json"
+      , configPath         :: !FilePath
+      -- | path for the db passed to db-analyzer. This is relative to
+      -- @nodeHome@. When not present this defaults to "/mainnet/db"
+      , dbPath             :: !FilePath
       , analyseFromSlot    :: !Int
       , numBlocksToProcess :: !Int
         -- | Whether to overwrite the CSV files that 'db-analyser' produces.
@@ -449,16 +456,18 @@ runBenchmarks opts InstallInfo { installPath, installedVersion } = do
     vToFilePath version =
       version.dbAnalyser <> "-" <> version.compiler
 
+    newLine = " \\\n"
+
     run =
       callCommandEchoing echo
-        $ "./" <> installPath <> " cardano \\\n"
-        <> "\t --config " <> nodeHome opts <> "/configuration/cardano/mainnet-config.json \\\n"
-        <> "\t --db " <> nodeHome opts <> "/mainnet/db \\\n"
-        <> "\t --analyse-from " <> show (analyseFromSlot opts) <> " \\\n"
-        <> "\t --benchmark-ledger-ops \\\n"
-        <> "\t --out-file " <> outfile <>" \\\n"
-        <> "\t --num-blocks-to-process " <> show (numBlocksToProcess opts) <>" \\\n"
-        <> "\t --only-immutable-db \\\n"
+        $ "./" <> installPath <> " cardano"                    <> newLine
+        <> "\t --config " <> nodeHome opts <> configPath opts  <> newLine
+        <> "\t --db "     <> nodeHome opts <> dbPath opts      <> newLine
+        <> "\t --analyse-from " <> show (analyseFromSlot opts) <> newLine
+        <> "\t --benchmark-ledger-ops"                         <> newLine
+        <> "\t --out-file " <> outfile                         <> newLine
+        <> "\t --num-blocks-to-process " <> show (numBlocksToProcess opts) <> newLine
+        <> "\t --only-immutable-db"                            <> newLine
         <> "\t +RTS -T -RTS"
 
 data EchoCommand = EchoCommand | DoNotEchoCommand
@@ -499,6 +508,8 @@ parseOpts =   BenchmarksCompareOptions
           <$> parseVersion "versionA"
           <*> parseVersion "versionB"
           <*> parseNodeHome
+          <*> parseConfigPath
+          <*> parseDBPath
           <*> parseAnalyseFrom
           <*> parseNumBlocksToProcess
           <*> parseOverwriteData
@@ -527,6 +538,24 @@ parseOpts =   BenchmarksCompareOptions
                     ( mconcat
                       [ long "node-home"
                       , help "File path to the 'mainnet' data directory of the node."
+                      ]
+                    )
+
+    parseConfigPath :: Parser FilePath
+    parseConfigPath = strOption
+                      ( mconcat
+                        [ long "config-path"
+                        , value "/configuration/cardano/mainnet-config.json"
+                        , help "File path to the config.json file. Relative to node-home. When not passed this defaults to /configuration/cardano/mainnet-config.json"
+                        ]
+                      )
+
+    parseDBPath :: Parser FilePath
+    parseDBPath = strOption
+                    ( mconcat
+                      [ long "db-path"
+                      , value "/mainnet/db"
+                      , help "File path to the db file analyzed by db-analyzer. Relative to node-home. When not passed this defaults to mainnet/db"
                       ]
                     )
 
