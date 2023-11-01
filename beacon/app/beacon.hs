@@ -419,11 +419,11 @@ installBenchmarkingProg ::
   -> IO InstallInfo
 installBenchmarkingProg version = do
     let installCmd =  "nix build "
-                   <> "github:input-output-hk/ouroboros-consensus/"
+                   <> "github:doyougnu/ouroboros-consensus/"
                    <> version.dbAnalyser
                    <> "#hydraJobs.x86_64-linux.native."
                    <> version.compiler
-                   <> ".exesNoAsserts.ouroboros-consensus-cardano.db-analyser"
+                   <> ".exes.ouroboros-consensus-cardano.db-analyser"
                    <> " -o " <> installDir
         installDir = "db-analyser-" <> version.dbAnalyser <> "-" <> version.compiler
         executable = installDir <> "/bin/db-analyser"
