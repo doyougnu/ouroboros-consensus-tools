@@ -106,14 +106,14 @@ data BenchmarksCompareOptions = BenchmarksCompareOptions {
         -- | Whether to overwrite the CSV files that 'db-analyser' produces.
       , overwriteData      :: !OverwriteData
         -- | Whether to the plot the CSV files that 'db-analyser' produces.
-      , doPlotting         :: !EmitPlots
+      , doPlotting         :: !ShouldEmitPlots
     }
 
 -- | Should the program overwrite the benchmark data?
 data OverwriteData = OverwriteData | DoNotOverwriteData
 
 -- | Should the program plot the benchmark data?
-data EmitPlots = EmitPlots | DoNotEmitPlots
+data ShouldEmitPlots = EmitPlots | DoNotEmitPlots
   deriving Eq
 
 emitPlots :: BenchmarksCompareOptions -> Bool
@@ -588,7 +588,7 @@ parseOpts =   BenchmarksCompareOptions
                          , help "Overwrite previous benchmark data"
                          ]
 
-    parseDoPlotting :: Parser EmitPlots
+    parseDoPlotting :: Parser ShouldEmitPlots
     parseDoPlotting = flag DoNotEmitPlots EmitPlots
                       $ mconcat
                       [ long "do-plotting"
